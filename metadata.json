@@ -1,0 +1,6 @@
+{
+  "name": "초등 문제 생성기",
+  "description": "학년, 과목, 단원을 선택하여 초등학교 맞춤형 문제를 생성하고 관련 이미지까지 함께 제공하는 AI 문제 생성기입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

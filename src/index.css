@@ -1,0 +1,19 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard", "Apple SD Gothic Neo", "Helvetica Neue", Arial, sans-serif;
+  
+  --color-brand-bg: #F0F4F8;
+  --color-brand-primary: #2563EB;
+  --color-brand-secondary: #F59E0B;
+  --color-brand-ink: #1E293B;
+  --color-brand-border: #CBD5E1;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-bg text-brand-ink font-sans;
+  }
+}
+
