@@ -36,12 +36,16 @@ export async function generateQuestions(
   
   const prompt = `
     초등학교 ${params.grade} ${params.semester} ${params.subject} 과목의 '${params.unit}' 단원에 대한 문제를 총 ${params.count}개 생성해줘.
-    난이도는 '${params.difficulty}' 수준으로 해줘.
+    난이도는 '${params.difficulty}' 수준으로 해줘. 😊
+    
+    [중요 지침]
+    1. 수학 기호: LaTeX 기호(예: \\div, \\times, \\Box)를 절대로 사용하지 마세요. 대신 표준 기호(÷, ×, □)를 사용하세요.
+    2. 이모지 사용: :) 또는 :( 와 같은 텍스트 이모티콘 대신 실제 이모지(😊, 📚, ✨ 등)를 풍부하게 사용하세요. 초등학생들이 좋아하도록 다정하고 생동감 있게 작성해줘.
+    3. 가독성: 강조하고 싶은 부분은 **굵게** 표시하고, 문단 구분을 명확히 하세요.
     
     각 문제는 다음 형식을 지켜줘:
     1. 문제 텍스트:
        - 대화문(A:, B:)이나 예시 문장이 포함된 경우, 반드시 줄바꿈을 사용하여 구분해줘.
-       - 예: "다음 대화의 빈칸에 알맞은 말을 고르세요.\n\nA: What did you do yesterday?\nB: I ________ to the farm."와 같이 한 줄로 잇지 말고 명확히 구분해.
     2. 객관식인 경우 4개의 보기
     3. 정답
     4. 상세한 풀이 과정 및 설명:

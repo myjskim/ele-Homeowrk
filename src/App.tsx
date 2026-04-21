@@ -5,6 +5,8 @@ import { GRADES, SEMESTERS, SUBJECTS, DIFFICULTIES, UNITS } from './constants';
 import { Grade, Semester, Subject, Difficulty, Unit, AppSettings, Question } from './types';
 import SettingsModal from './components/SettingsModal';
 import { generateQuestions, generateQuestionImage } from './services/gemini';
+import { GoogleGenAI } from "@google/genai";
+import Markdown from 'react-markdown';
 
 export default function App() {
   // State for selections
@@ -27,6 +29,8 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
+  const [questionChats, setQuestionChats] = useState<Record<number, { role: 'user' | 'model', text: string }[]>>({});
+  const [isAskingAI, setIsAskingAI] = useState<Record<number, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
   // Filter subjects for 1-2 grade (no social, science, english)
@@ -68,6 +72,8 @@ export default function App() {
     setError(null);
     setGeneratedQuestions([]);
     setUserAnswers({});
+    setQuestionChats({});
+    setIsAskingAI({});
 
     try {
       const { questions, model } = await generateQuestions(settings.apiKey, {
@@ -110,11 +116,102 @@ export default function App() {
     setUserAnswers(prev => ({ ...prev, [qIdx]: answer }));
   };
 
+  const handleAskAI = async (qIdx: number, userMessage: string) => {
+    if (!userMessage.trim() || !settings.apiKey) return;
+
+    const currentChat = questionChats[qIdx] || [];
+    const newChat = [...currentChat, { role: 'user' as const, text: userMessage }];
+    
+    setQuestionChats(prev => ({ ...prev, [qIdx]: newChat }));
+    setIsAskingAI(prev => ({ ...prev, [qIdx]: true }));
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+      const question = generatedQuestions[qIdx];
+      
+      const systemPrompt = `당신은 초등학생의 학습을 돕는 친절한 다정 선생님입니다. 😊
+다음 문제 상황에 대해 학생이 질문을 했습니다. 초등학생 눈높이에 맞춰 쉽고 상세하게 설명해 주세요. ✨
+
+[중요 지침 - 반드시 지킬 것!]
+1. 수학 기호: LaTeX 기호(예: \\div, \\times, \\Box, \\\\)를 절대 사용하지 마세요. ❌ 대신 일상적인 기호(÷, ×, □)를 사용하세요.
+2. 이모지 사용: :) 같은 글자 표시 대신 실제 이모지(🌟, 👏, 📖 등)를 문장마다 풍부하게 사용하여 생동감을 주세요.
+3. 굵은 글씨: 핵심 단어나 강조하고 싶은 부분은 **굵게** 표시하세요. (예: **나누는 수**)
+4. 답변 스타일: 아이와 대화하듯 부드러운 말투(~해요, ~알아볼까요?)를 사용하고 친절하게 칭찬해 주세요.
+5. 가독성: 한 번에 너무 많은 내용을 붙여 쓰지 말고, 주제가 바뀔 때 줄바꿈을 두 번 해서 문단을 나누어 주세요.
+
+[문제 정보]
+과목: ${subject}
+단원: ${unit}
+문제: ${question.text}
+정답: ${question.answer}
+해설: ${question.explanation}
+학생의 선택: ${userAnswers[qIdx] || '아직 선택하지 않음'}
+
+교과서의 '약속하기'나 '핵심 개념'을 바탕으로 다정하게 답변해 주세요. 🍎`;
+
+      const chatHistory = newChat.map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      }));
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: chatHistory,
+        config: {
+          systemInstruction: systemPrompt
+        }
+      });
+
+      const aiResponse = response.text || "죄송해요, 답변을 생성하지 못했어요. 다시 한 번 물어봐 주시겠어요?";
+      setQuestionChats(prev => ({ 
+        ...prev, 
+        [qIdx]: [...(prev[qIdx] || []), { role: 'model' as const, text: aiResponse }] 
+      }));
+    } catch (err) {
+      console.error("AI Q&A Error:", err);
+      setQuestionChats(prev => ({ 
+        ...prev, 
+        [qIdx]: [...(prev[qIdx] || []), { role: 'model' as const, text: "오류가 발생했습니다. 잠시 후 다시 시도해 주세요." }] 
+      }));
+    } finally {
+      setIsAskingAI(prev => ({ ...prev, [qIdx]: false }));
+    }
+  };
+
+  const handlePrintPDF = () => {
+    window.print();
+  };
+
+  const handleSaveAll = () => {
+    const timestamp = new Date().toLocaleString();
+    const dataToSave = {
+      id: Date.now(),
+      title: `${grade} ${semester} ${subject} - ${unit}`,
+      questions: generatedQuestions,
+      savedAt: timestamp
+    };
+    
+    // Save to localStorage
+    const savedSets = JSON.parse(localStorage.getItem('edu_gemini_saved_sets') || '[]');
+    localStorage.setItem('edu_gemini_saved_sets', JSON.stringify([dataToSave, ...savedSets]));
+    
+    // Optional: Download as JSON file
+    const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `problem_set_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    alert("현재 문제 세트가 브라우저에 저장되고 파일로 다운로드되었습니다! ✨");
+  };
+
   return (
     <div className="min-h-screen bg-brand-bg font-sans text-brand-ink pb-12 transition-colors duration-500">
       {/* Header */}
       <header className="bg-white border-b-3 border-brand-ink sticky top-0 z-30 h-20 flex items-center">
-        <div className="max-w-[1024px] w-full mx-auto px-10 flex items-center justify-between">
+        <div className="max-w-[1024px] w-full mx-auto px-4 sm:px-10 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-black tracking-tighter uppercase">
               EDU <span className="text-brand-primary">GEMINI</span>
@@ -130,9 +227,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-[1024px] mx-auto px-8 py-8 lg:grid lg:grid-cols-[380px_1fr] gap-10 space-y-8 lg:space-y-0">
+      <main className="max-w-[1024px] mx-auto px-4 sm:px-8 py-8 lg:grid lg:grid-cols-[380px_1fr] gap-10 space-y-8 lg:space-y-0">
         {/* Left Column: Selection Panel */}
-        <section className="bg-white border-2 border-brand-ink p-8 flex flex-col gap-8 shadow-[8px_8px_0px_theme(colors.brand-ink)] self-start h-fit">
+        <section className="bg-white border-2 border-brand-ink p-5 sm:p-8 flex flex-col gap-8 shadow-[8px_8px_0px_theme(colors.brand-ink)] self-start h-fit">
           <div className="space-y-1">
             <p className="text-[14px] font-black uppercase text-brand-primary tracking-wide">문제 구성 조건</p>
             <h2 className="text-xl font-black">AI 학습 매니저</h2>
@@ -318,20 +415,30 @@ export default function App() {
                 animate={{ opacity: 1 }}
                 className="space-y-12"
               >
-                <div className="flex items-center justify-between border-b-2 border-brand-ink pb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b-2 border-brand-ink pb-4 gap-4">
                   <div>
-                    <h3 className="text-2xl font-black tracking-tight">생성된 문제 세트</h3>
+                    <h3 className="text-xl sm:text-2xl font-black tracking-tight">생성된 문제 세트</h3>
                     <p className="text-sm text-gray-500 font-bold mt-1">총 {generatedQuestions.length}문항 | {grade} {subject}</p>
                   </div>
                   <div className="flex gap-2">
-                    <button className="px-4 py-2 border-2 border-brand-ink bg-white text-xs font-black uppercase">전체 PDF</button>
-                    <button className="px-4 py-2 bg-brand-ink text-white text-xs font-black uppercase">모두 저장</button>
+                    <button 
+                      onClick={handlePrintPDF}
+                      className="flex-1 sm:flex-none px-4 py-2 border-2 border-brand-ink bg-white text-xs font-black uppercase hover:bg-gray-50 transition-colors"
+                    >
+                      전체 PDF
+                    </button>
+                    <button 
+                      onClick={handleSaveAll}
+                      className="flex-1 sm:flex-none px-4 py-2 bg-brand-ink text-white text-xs font-black uppercase hover:opacity-90 transition-opacity"
+                    >
+                      모두 저장
+                    </button>
                   </div>
                 </div>
 
                 <div className="space-y-8">
                   {generatedQuestions.map((q, qIdx) => (
-                    <div key={qIdx} className="bg-white border-2 border-brand-ink p-10 relative flex flex-col shadow-[8px_8px_0px_rgba(0,0,0,0.05)]">
+                    <div key={qIdx} className="bg-white border-2 border-brand-ink p-6 md:p-10 relative flex flex-col shadow-[8px_8px_0px_rgba(0,0,0,0.05)] question-card">
                       <div className="absolute -top-3 left-6 bg-brand-ink text-white px-4 py-1.5 text-[12px] font-black tracking-widest">
                         Q. {qIdx + 1}
                       </div>
@@ -343,9 +450,9 @@ export default function App() {
                       </div>
 
                       <div className="space-y-8">
-                        <h3 className="text-2xl font-black text-brand-ink leading-snug whitespace-pre-wrap">
-                          {q.text}
-                        </h3>
+                        <div className="text-xl font-bold text-brand-ink leading-snug prose prose-slate max-w-none">
+                          <Markdown>{q.text}</Markdown>
+                        </div>
 
                         {q.imagePrompt && (
                           <div className="w-full aspect-video bg-brand-bg border-2 border-dashed border-brand-border flex items-center justify-center relative overflow-hidden group">
@@ -416,7 +523,7 @@ export default function App() {
                           <motion.div 
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}
-                            className="mt-10 pt-10 border-t-2 border-brand-bg space-y-6 overflow-hidden"
+                            className="mt-6 md:mt-10 pt-6 md:pt-10 border-t-2 border-brand-bg space-y-6 overflow-hidden"
                           >
                             <div className="flex items-center gap-4 mb-4">
                               {userAnswers[qIdx] === q.answer ? (
@@ -432,18 +539,79 @@ export default function App() {
                               )}
                             </div>
 
-                            <div className="flex items-start gap-4">
-                              <div className="px-3 py-1 bg-brand-secondary text-brand-ink text-[11px] font-black uppercase border-2 border-brand-ink">
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+                              <div className="w-fit px-3 py-1 bg-brand-secondary text-brand-ink text-[11px] font-black uppercase border-2 border-brand-ink">
                                 ANSWER
                               </div>
                               <p className="text-xl font-black text-brand-primary">{q.answer}</p>
                             </div>
 
-                            <div className="flex items-start gap-4">
-                              <div className="px-3 py-1 bg-gray-100 text-gray-600 text-[11px] font-black uppercase border-2 border-gray-200">
+                              <div className="flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+                              <div className="w-fit px-3 py-1 bg-gray-100 text-gray-600 text-[11px] font-black uppercase border-2 border-gray-200">
                                 EXPLAIN
                               </div>
-                              <p className="text-gray-600 font-medium leading-relaxed text-sm whitespace-pre-wrap">{q.explanation}</p>
+                              <div className="text-gray-600 leading-relaxed text-sm prose prose-sm prose-slate max-w-none">
+                                <Markdown>{q.explanation}</Markdown>
+                              </div>
+                            </div>
+
+                            {/* AI Chat Section */}
+                            <div className="mt-8 pt-8 border-t-2 border-dashed border-gray-100">
+                              <div className="flex items-center gap-2 mb-4 text-brand-primary font-black">
+                                <div className="w-8 h-8 rounded-full bg-brand-primary/10 flex items-center justify-center">
+                                  <Layers className="w-4 h-4" />
+                                </div>
+                                <span>AI 선생님에게 더 궁금한 점 물어보기</span>
+                              </div>
+
+                              <div className="space-y-4 mb-6">
+                                {(questionChats[qIdx] || []).map((msg, mIdx) => (
+                                  <div key={mIdx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] px-4 py-3 border-2 text-sm prose prose-sm ${
+                                      msg.role === 'user' 
+                                        ? 'bg-brand-primary text-white border-brand-ink rounded-l-2xl rounded-tr-2xl prose-invert font-bold' 
+                                        : 'bg-white text-brand-ink border-brand-ink rounded-r-2xl rounded-tl-2xl prose-slate'
+                                    }`}>
+                                      <Markdown>
+                                        {msg.text}
+                                      </Markdown>
+                                    </div>
+                                  </div>
+                                ))}
+                                {isAskingAI[qIdx] && (
+                                  <div className="flex justify-start">
+                                    <div className="px-4 py-3 bg-white border-2 border-brand-ink rounded-r-2xl rounded-tl-2xl flex items-center gap-2">
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span className="text-sm font-bold">선생님이 생각 중이에요...</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="이 문제에 대해 더 궁금한 점이 있나요?"
+                                  className="flex-1 border-2 border-brand-border px-4 py-3 text-sm font-bold focus:border-brand-ink outline-none transition-all"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !isAskingAI[qIdx]) {
+                                      handleAskAI(qIdx, (e.target as HTMLInputElement).value);
+                                      (e.target as HTMLInputElement).value = '';
+                                    }
+                                  }}
+                                />
+                                <button
+                                  onClick={(e) => {
+                                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                                    handleAskAI(qIdx, input.value);
+                                    input.value = '';
+                                  }}
+                                  disabled={isAskingAI[qIdx]}
+                                  className="bg-brand-ink text-white px-6 font-bold hover:bg-brand-primary transition-all disabled:opacity-50"
+                                >
+                                  보내기
+                                </button>
+                              </div>
                             </div>
                           </motion.div>
                         )}

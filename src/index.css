@@ -1,5 +1,6 @@
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
   --font-sans: "Pretendard", "Apple SD Gothic Neo", "Helvetica Neue", Arial, sans-serif;
@@ -14,6 +15,46 @@
 @layer base {
   body {
     @apply bg-brand-bg text-brand-ink font-sans;
+  }
+}
+
+@media print {
+  header, 
+  section,
+  .no-print {
+    display: none !important;
+  }
+  
+  main {
+    display: block !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .bg-white {
+    background-color: white !important;
+    border: 1px solid #1E293B !important;
+    box-shadow: none !important;
+  }
+
+  button {
+    display: none !important;
+  }
+
+  .prose {
+    max-width: none !important;
+  }
+
+  /* Page break after each question */
+  .question-card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 2rem !important;
   }
 }
 
